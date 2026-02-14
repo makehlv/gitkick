@@ -59,11 +59,11 @@ func (g *GitService) GetCurrentBranchName() (string, error) {
 	return branch, nil
 }
 
-func (p *GitService) generateHash() string {
+func (p *GitService) generateHash(hashlen int) string {
 	const charset = "abcdefghijklmnopqrstuvwxyz0123456789"
 	r := rand.New(rand.NewSource(time.Now().UnixNano()))
 
-	hash := make([]byte, 6)
+	hash := make([]byte, hashlen)
 	for i := range hash {
 		hash[i] = charset[r.Intn(len(charset))]
 	}
@@ -140,13 +140,25 @@ type PushService struct {
 }
 
 func (p *PushService) SquashWithForcedPush(targetBranch string) error {
+	err := p.git.AddAll()
+	if err != nil {
+		return err
+	}
+	p.logger.Info("PushService", "add all changes", "success")
+
+	err = p.git.Commit("temp-commit")
+	if err != nil {
+		return err
+	}
+	p.logger.Info("PushService", "committed", "temp-commit")
+
 	branch, err := p.git.GetCurrentBranchName()
 	if err != nil {
 		return err
 	}
 	p.logger.Info("PushService", "current branch", branch)
 
-	hash := p.git.generateHash()
+	hash := p.git.generateHash(6)
 	newBranch := fmt.Sprintf("%s-%s", branch, hash)
 	err = p.git.CheckoutNewBranch(newBranch)
 	if err != nil {
