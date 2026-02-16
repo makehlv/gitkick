@@ -247,8 +247,16 @@ func (s *CodeFlowManageService) Commit() error {
 }
 
 func (s *CodeFlowManageService) Push() error {
-	if err := s.Commit(); err != nil {
+	out, err := s.git.StatusWithPorcelain()
+	if err != nil {
 		return err
+	}
+	if out != "" {
+		if err := s.Commit(); err != nil {
+			return err
+		}
+	} else {
+		s.logger.Info("Push", "no changes to commit", "skip commit")
 	}
 
 	branch, err := s.git.GetCurrentBranchName()
