@@ -1,3 +1,3 @@
-module github.com/makehlv/gitkick
+module github.com/makehlv/kk
 
 go 1.22.4

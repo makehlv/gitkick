@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"os"
 	"os/exec"
+	"regexp"
 	"strings"
 	"time"
 
@@ -21,34 +22,33 @@ func main() {
 
 	git := GitService{}
 	logger := slog.New(NewColorHandler(os.Stderr, slog.LevelInfo))
+	manage := CodeFlowManageService{git: &git, logger: logger}
 
 	command := os.Args[1]
 	switch command {
 	case "squash":
 		comparableBranch := parseFlag(os.Args[2:], "--compare")
 		if comparableBranch == "" {
-			comparableBranch = parseFlag(os.Args[2:], "-c")
-		}
-		if comparableBranch == "" {
 			comparableBranch = "develop"
 		}
-		forcePush := hasFlag(os.Args[2:], "--push-force")
-		message := parseFlag(os.Args[2:], "-m")
-		manage := CodeFlowManageService{git: &git, logger: logger}
-		if err := manage.Squash(comparableBranch, forcePush, message); err != nil {
+		message := parseFlag(os.Args[2:], "--message")
+		if err := manage.Squash(comparableBranch, message); err != nil {
 			logger.Error("squash failed", "error", err)
 			os.Exit(1)
 		}
 	case "clean":
-		manage := CodeFlowManageService{git: &git, logger: logger}
 		if err := manage.CleanFallbackBranches(); err != nil {
 			logger.Error("clean failed", "error", err)
 			os.Exit(1)
 		}
-	case "commitall":
-		manage := CodeFlowManageService{git: &git, logger: logger}
-		if err := manage.CommitAll(); err != nil {
-			logger.Error("commitall failed", "error", err)
+	case "commit":
+		if err := manage.Commit(); err != nil {
+			logger.Error("commit failed", "error", err)
+			os.Exit(1)
+		}
+	case "push":
+		if err := manage.Push(); err != nil {
+			logger.Error("push failed", "error", err)
 			os.Exit(1)
 		}
 	default:
@@ -66,13 +66,17 @@ func parseFlag(args []string, flag string) string {
 	return ""
 }
 
-func hasFlag(args []string, flag string) bool {
-	for _, arg := range args {
-		if arg == flag {
-			return true
-		}
+var branchRegex = regexp.MustCompile(`^([A-Za-z]+)[/-](\d+)-(.+)$`)
+
+func commitMessageFromBranch(branch string) string {
+	matches := branchRegex.FindStringSubmatch(branch)
+	if matches == nil {
+		return branch
 	}
-	return false
+	prefix := matches[1]
+	number := matches[2]
+	description := strings.ReplaceAll(matches[3], "-", " ")
+	return fmt.Sprintf("[%s-%s] %s", prefix, number, description)
 }
 
 // --------------------------------- Git ---------------------------------------
@@ -130,11 +134,11 @@ func (g *GitService) Commit(message string) error {
 	return err
 }
 
-func (g *GitService) PushForce(branchName string) error {
-	arg := []string{"push", "--force", "--set-upstream", "origin", branchName}
+func (g *GitService) Push(branchName string) error {
+	arg := []string{"push", "--set-upstream", "origin", branchName}
 	out, err := exec.Command("git", arg...).Output()
 	if err != nil {
-		return fmt.Errorf("failed to force push %s", out)
+		return fmt.Errorf("failed to push %s", out)
 	}
 	return err
 }
@@ -222,7 +226,7 @@ func (s *CodeFlowManageService) CleanFallbackBranches() error {
 	return nil
 }
 
-func (s *CodeFlowManageService) CommitAll() error {
+func (s *CodeFlowManageService) Commit() error {
 	branch, err := s.git.GetCurrentBranchName()
 	if err != nil {
 		return err
@@ -231,17 +235,36 @@ func (s *CodeFlowManageService) CommitAll() error {
 	if err := s.git.AddAll(); err != nil {
 		return err
 	}
-	s.logger.Info("CommitAll", "status", "staged all changes")
+	s.logger.Info("Commit", "status", "staged all changes")
 
-	if err := s.git.Commit(branch); err != nil {
+	message := commitMessageFromBranch(branch)
+	if err := s.git.Commit(message); err != nil {
 		return err
 	}
-	s.logger.Info("CommitAll", "committed with message", branch)
+	s.logger.Info("Commit", "committed with message", message)
 
 	return nil
 }
 
-func (s *CodeFlowManageService) Squash(comparableBranch string, forcePush bool, commitMessage string) error {
+func (s *CodeFlowManageService) Push() error {
+	if err := s.Commit(); err != nil {
+		return err
+	}
+
+	branch, err := s.git.GetCurrentBranchName()
+	if err != nil {
+		return err
+	}
+
+	if err := s.git.Push(branch); err != nil {
+		return err
+	}
+	s.logger.Info("Push", "pushed branch", branch)
+
+	return nil
+}
+
+func (s *CodeFlowManageService) Squash(comparableBranch string, commitMessage string) error {
 	status, err := s.git.StatusWithPorcelain()
 	if err != nil {
 		return fmt.Errorf("failed to get working tree status: %s", err)
@@ -293,21 +316,13 @@ func (s *CodeFlowManageService) Squash(comparableBranch string, forcePush bool, 
 
 	message := commitMessage
 	if message == "" {
-		message = currentBranch
+		message = commitMessageFromBranch(currentBranch)
 	}
-	err = s.git.Commit(currentBranch)
+	err = s.git.Commit(message)
 	if err != nil {
 		return err
 	}
 	s.logger.Info("Squash", "squash committed as", message, "on branch", currentBranch)
-
-	if forcePush {
-		err = s.git.PushForce(currentBranch)
-		if err != nil {
-			return err
-		}
-		s.logger.Info("Squash", "forced push successful", currentBranch)
-	}
 
 	return nil
 }
