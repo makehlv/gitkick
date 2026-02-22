@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"sort"
 	"strings"
 
 	"gopkg.in/yaml.v3"
@@ -44,6 +45,19 @@ func (s *SwaggerService) BuildCurl(serverName, operationId string) (string, erro
 
 func (s *SwaggerService) SaveServerSpec(serverName, specPath string) error {
 	return s.repositories.Swagger.SaveServerSpec(serverName, specPath)
+}
+
+func (s *SwaggerService) ListServers() ([]string, error) {
+	servers, err := s.repositories.Swagger.GetServers()
+	if err != nil {
+		return nil, err
+	}
+	names := make([]string, 0, len(servers))
+	for name := range servers {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return names, nil
 }
 
 func parseSpec(data []byte) (*OpenAPI, error) {

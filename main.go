@@ -53,8 +53,15 @@ func main() {
 		}
 	case "swg":
 		if len(os.Args) < 3 {
-			fmt.Println("usage: kk swg <server_name> --gen <operationId> | --spec <absolute_path_to_swagger>")
-			os.Exit(1)
+			names, err := svc.Swagger.ListServers()
+			if err != nil {
+				logger.Error("swg failed", "error", err)
+				os.Exit(1)
+			}
+			for _, name := range names {
+				fmt.Println(name)
+			}
+			break
 		}
 		serverName := os.Args[2]
 		genOp := parseFlag(os.Args[3:], "--gen")
@@ -76,7 +83,7 @@ func main() {
 				os.Exit(1)
 			}
 		} else {
-			fmt.Println("usage: kk swg <server_name> --gen <operationId> | --spec <absolute_path_to_swagger>")
+			fmt.Println("usage: kk swg [<server_name> --gen <operationId> | --spec <absolute_path_to_swagger>]")
 			os.Exit(1)
 		}
 	case "var":
